@@ -1,156 +1,127 @@
+// 1. Updated ParticleBackground.js with proper hydration handling
 'use client';
 
-import { useEffect, useRef } from 'react';
-import Matter from 'matter-js';
+import { useEffect, useRef, useState } from 'react';
+import dynamic from 'next/dynamic';
 
-// Using React 19 component style with explicit return
 export default function ParticleBackground() {
   const sceneRef = useRef(null);
-  const engineRef = useRef(null);
-
+  const [isMounted, setIsMounted] = useState(false);
+  
+  // Only mount component on client-side to prevent hydration mismatch
   useEffect(() => {
-    // Dynamically import Matter.js to avoid SSR issues in Next.js 15
-    let isMounted = true;
-    let cleanup = () => {};
-
-    const setupMatter = async () => {
-      if (!isMounted) return;
-      
-      // Matter.js modules
-      const Engine = Matter.Engine;
-      const Render = Matter.Render;
-      const World = Matter.World;
-      const Bodies = Matter.Bodies;
-      const Body = Matter.Body;
-
-      // Create engine with improved options for React 19
-      const engine = Engine.create({
-        gravity: { x: 0, y: 0 },
-        enableSleeping: false,
-      });
-      engineRef.current = engine;
-
-      // Only create renderer if we have a DOM element
-      if (!sceneRef.current) return;
-
-      // Create renderer with Next.js 15 optimizations
-      const render = Render.create({
-        element: sceneRef.current,
-        engine: engine,
-        options: {
-          width: window.innerWidth,
-          height: window.innerHeight,
-          wireframes: false,
-          background: 'transparent',
-          pixelRatio: window.devicePixelRatio || 1,
-          // Improved rendering for higher performance
-          showSleeping: false,
-          showDebug: false,
-          showBroadphase: false,
-          showBounds: false,
-          showVelocity: false,
-          showCollisions: false,
-          showAxes: false,
-          showPositions: false,
-          showAngleIndicator: false,
-          showIds: false,
+    setIsMounted(true);
+    return () => setIsMounted(false);
+  }, []);
+  
+  useEffect(() => {
+    if (!isMounted) return;
+    
+    // Only import Matter.js on the client side
+    const importMatter = async () => {
+      try {
+        const Matter = await import('matter-js');
+        
+        if (!sceneRef.current) return;
+        
+        // Matter.js setup
+        const Engine = Matter.Engine;
+        const Render = Matter.Render;
+        const World = Matter.World;
+        const Bodies = Matter.Bodies;
+        const Body = Matter.Body;
+        
+        const engine = Engine.create({
+          gravity: { x: 0, y: 0 },
+          enableSleeping: false,
+        });
+        
+        const render = Render.create({
+          element: sceneRef.current,
+          engine: engine,
+          options: {
+            width: window.innerWidth,
+            height: window.innerHeight,
+            wireframes: false,
+            background: 'transparent',
+            pixelRatio: 1, // Use 1 for better performance
+          }
+        });
+        
+        // Create particles
+        const particleCount = Math.min(40, Math.floor(window.innerWidth / 30)); // Reduced count
+        const particles = [];
+        
+        const colors = ['#872e1b', '#63854f', '#a8b4bc'];
+        
+        for (let i = 0; i < particleCount; i++) {
+          const size = Math.random() * 4 + 1; // Smaller particles
+          const x = Math.random() * window.innerWidth;
+          const y = Math.random() * window.innerHeight;
+          
+          const color = colors[Math.floor(Math.random() * colors.length)];
+          
+          const particle = Bodies.circle(x, y, size, {
+            friction: 0,
+            frictionAir: 0.03, // Increased for stability
+            restitution: 0.7,
+            render: {
+              fillStyle: color,
+              opacity: 0.6,
+            }
+          });
+          
+          Body.setVelocity(particle, {
+            x: (Math.random() - 0.5) * 1,
+            y: (Math.random() - 0.5) * 1
+          });
+          
+          particles.push(particle);
         }
-      });
-
-      // Create particles with optimized count for performance
-      const particleCount = Math.min(60, Math.floor(window.innerWidth / 25));
-      const particles = [];
-
-      // Brand color palette
-      const colors = ['#872e1b', '#63854f', '#a8b4bc'];
-
-      for (let i = 0; i < particleCount; i++) {
-        const size = Math.random() * 6 + 1;
-        // Distribute particles more evenly
-        const x = Math.random() * (window.innerWidth - 20) + 10;
-        const y = Math.random() * (window.innerHeight - 20) + 10;
         
-        const color = colors[Math.floor(Math.random() * colors.length)];
+        World.add(engine.world, particles);
         
-        // Create particle with optimized properties
-        const particle = Bodies.circle(x, y, size, {
-          friction: 0,
-          frictionAir: 0.025,
-          restitution: 0.8,
-          render: {
-            fillStyle: color,
-            opacity: 0.7,
-          },
-          isStatic: false,
-          // Add label for debugging
-          label: 'particle',
-        });
+        const runner = Engine.run(engine);
+        Render.run(render);
         
-        // Add random velocity - more controlled for better aesthetic
-        Body.setVelocity(particle, {
-          x: (Math.random() - 0.5) * 1.5,
-          y: (Math.random() - 0.5) * 1.5
-        });
-        
-        particles.push(particle);
-      }
-
-      // Add particles to the world
-      World.add(engine.world, particles);
-
-      // Run the engine and renderer
-      const runner = Engine.run(engine);
-      Render.run(render);
-
-      // Debounced resize handler for better performance
-      let resizeTimeout;
-      const handleResize = () => {
-        clearTimeout(resizeTimeout);
-        resizeTimeout = setTimeout(() => {
-          if (render && render.canvas) {
+        // Simplified resize handler
+        const handleResize = () => {
+          if (render.canvas) {
             render.options.width = window.innerWidth;
             render.options.height = window.innerHeight;
             render.canvas.width = window.innerWidth;
             render.canvas.height = window.innerHeight;
-            Render.setPixelRatio(render, window.devicePixelRatio || 1);
           }
-        }, 250);
-      };
-      
-      window.addEventListener('resize', handleResize);
-
-      // Enhanced cleanup function
-      cleanup = () => {
-        window.removeEventListener('resize', handleResize);
-        clearTimeout(resizeTimeout);
+        };
         
-        if (runner) {
-          Engine.clear(engine);
-          World.clear(engine.world);
-          Engine.stop(runner);
-        }
+        window.addEventListener('resize', handleResize);
         
-        if (render) {
-          Render.stop(render);
+        return () => {
+          window.removeEventListener('resize', handleResize);
+          
+          if (runner) Engine.stop(runner);
+          if (render) Render.stop(render);
+          
           if (render.canvas) {
             render.canvas.remove();
+            render.canvas = null;
+            render.context = null;
           }
-          render.canvas = null;
-          render.context = null;
-          render.textures = {};
-        }
-      };
+          
+          World.clear(engine.world);
+          Engine.clear(engine);
+        };
+      } catch (error) {
+        console.error('Failed to initialize Matter.js:', error);
+      }
     };
-
-    setupMatter();
-
-    // Cleanup with isMounted guard to prevent memory leaks
-    return () => {
-      isMounted = false;
-      cleanup();
-    };
-  }, []);
-
+    
+    importMatter();
+  }, [isMounted]);
+  
+  // Only render the container if mounted (client-side)
+  if (!isMounted) return null;
+  
   return (
     <div
       ref={sceneRef}
